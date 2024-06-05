@@ -38,6 +38,11 @@
 static const __attribute__((at(0x1D00))) unsigned char frame[12] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
 #include "sigfox_rc.h"
 #include "sigfox_ep_api.h"
+#include "una_gpio.h"
+#include "main.h"
+
+#define UNA_HERMES_H_R1_BOARD 	1
+
 
 static void _delay_ms(unsigned short delay_ms) {
 	unsigned short count_ms;
@@ -49,7 +54,16 @@ static void _delay_ms(unsigned short delay_ms) {
 
 void main() {
 	SIGFOX_EP_API_application_message_t SIGFOX_EP_API_application_message;
-	SIGFOX_EP_API_config_t SIGFOX_EP_API_config; 
+	SIGFOX_EP_API_config_t SIGFOX_EP_API_config;
+	
+#if UNA_HERMES_H_R1_BOARD
+	sfx_u8 power_on_f = 0;
+	
+	if (!((_pa_wake == 1) || ((_pdf == TRUE) && (_to == TRUE)))) {
+		PowerOnInit();
+		power_on_f = 1;
+	}
+#endif
 	//Watchdog
 	_wdtc 	= 0b10101000;	//Disable WatchDog
 	
@@ -58,7 +72,45 @@ void main() {
 	_hxtc	= 0b00000001;
 	while(!_hxtf);
 	_scc	= 0b00001000;	//Fh HXT
+
+#if UNA_HERMES_H_R1_BOARD
+	WakeupInit();
 	
+	if (power_on_f) {
+		LED_ON(LED_G_PIN);
+		LED_ON(LED_R_PIN);
+		_delay_ms(1000);
+		LED_OFF(LED_G_PIN);
+		LED_OFF(LED_R_PIN);
+	}
+	
+	while (1) {
+		// Clear WDT
+    	//GCC_CLRWDT();
+    	
+    	if (_pa3 != 0) {
+    		SleepMode();
+    		WakeupInit();
+    	}
+    	else {
+    		SIGFOX_EP_API_config.rc = &SIGFOX_RC1;
+			SIGFOX_EP_API_open(&SIGFOX_EP_API_config);
+			SIGFOX_EP_API_application_message.common_parameters.t_ifu_ms = 500;
+			SIGFOX_EP_API_application_message.common_parameters.tx_power_dbm_eirp = 12;//14;
+			SIGFOX_EP_API_application_message.type = SIGFOX_APPLICATION_MESSAGE_TYPE_BYTE_ARRAY;
+			SIGFOX_EP_API_application_message.common_parameters.number_of_frames = 3;
+			SIGFOX_EP_API_application_message.ul_payload_size_bytes = 12;
+			SIGFOX_EP_API_application_message.ul_payload = frame;
+			_delay_ms(1000);
+			LED_ON(LED_G_PIN);
+			SIGFOX_EP_API_open(&SIGFOX_EP_API_config);		
+			SIGFOX_EP_API_send_application_message(&SIGFOX_EP_API_application_message);
+			SIGFOX_EP_API_close();
+			LED_OFF(LED_G_PIN);
+			SIGFOX_EP_API_close();
+    	}
+	}
+#else
 	//Inpout Output Port
 	_pa_wake = 1;
 	_pac 	= 0b11111111;
@@ -66,13 +118,13 @@ void main() {
 	_pawu   = 0b11111111;
 	_pbc 	= 0b00000000;
 	_pb 	= 0b00001111;
-	
 	_delay_ms(1000);
-	_pb 	= 0b00000000;	
+	_pb 	= 0b00000000;
+
 	SIGFOX_EP_API_config.rc = &SIGFOX_RC1;
 	SIGFOX_EP_API_open(&SIGFOX_EP_API_config);
 	SIGFOX_EP_API_application_message.common_parameters.t_ifu_ms = 500;
-	SIGFOX_EP_API_application_message.common_parameters.tx_power_dbm_eirp = 14;
+	SIGFOX_EP_API_application_message.common_parameters.tx_power_dbm_eirp = 12;//14;
 	SIGFOX_EP_API_application_message.type = SIGFOX_APPLICATION_MESSAGE_TYPE_BYTE_ARRAY;
 	SIGFOX_EP_API_application_message.common_parameters.number_of_frames = 3;
 	SIGFOX_EP_API_application_message.ul_payload_size_bytes = 12;
@@ -80,10 +132,17 @@ void main() {
 
 	while(1) {
 		// Trigger send with button.
-		while (_pa1 != 0);
+		while (_pa3 != 0);
 		_delay_ms(2000);
 		SIGFOX_EP_API_open(&SIGFOX_EP_API_config);		
 		SIGFOX_EP_API_send_application_message(&SIGFOX_EP_API_application_message);
 		SIGFOX_EP_API_close();
 	}
+#endif
 }
+
+
+// ---
+
+
+
